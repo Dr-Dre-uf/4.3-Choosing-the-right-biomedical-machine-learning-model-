@@ -33,48 +33,50 @@ X_scaled = scaler.fit_transform(X)
 X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
 # --- SIDEBAR NAVIGATION ---
-st.sidebar.title("ML Learning Labs")
+st.sidebar.title("ML Learning Module")
 mode = st.sidebar.radio(
-    "Select a Lab Environment:",
+    "Select an Activity:",
     [
-        "Lab 1: The Feature Inspector (LogReg)", 
-        "Lab 2: Decision Boundary Visualizer", 
-        "Lab 3: The Clinical 'What-If' Simulator"
-    ]
+        "Activity 1: The Feature Inspector (LogReg)", 
+        "Activity 2: Decision Boundary Visualizer", 
+        "Activity 3: The Clinical 'What-If' Simulator"
+    ],
+    help="Navigate through the interactive activities to explore different machine learning models."
 )
 
 # ==========================================
-# LAB 1: FEATURE INSPECTOR (Logistic Regression)
+# ACTIVITY 1: FEATURE INSPECTOR
 # ==========================================
-if mode == "Lab 1: The Feature Inspector (LogReg)":
-    st.title("Lab 1: Feature Engineering & Log-Odds")
-    st.markdown("""
-    **The Goal:** The video script highlights Logistic Regression for its *feature interpretability*. 
-    Instead of using all data, select specific clinical features below to see how the **Beta Coefficients** change and impact your total accuracy.
-    """)
+if mode == "Activity 1: The Feature Inspector (LogReg)":
+    st.title("Activity 1: Feature Engineering & Log-Odds")
     
-    # Interactive Feature Selection
+    with st.expander("📝 Activity Instructions", expanded=True):
+        st.write("""
+        1. Review the available clinical features in the dropdown below.
+        2. Add or remove features to see how the Logistic Regression model adapts.
+        3. Observe the bar chart to see how the **Beta Coefficients** change dynamically based on your feature selection.
+        """)
+    
     selected_features = st.multiselect(
         "Select Clinical Features to include in the model:",
         options=feature_names,
-        default=["bmi", "bp", "s1", "s2", "s5"]
+        default=["bmi", "bp", "s1", "s2", "s5"],
+        help="Logistic regression relies on these features to calculate the log-odds of the disease outcome. Removing highly correlated features can shift the weight of the remaining ones."
     )
     
     if len(selected_features) > 0:
-        # Filter data based on selection
         feature_indices = [feature_names.index(f) for f in selected_features]
         X_train_sub = X_train[:, feature_indices]
         X_test_sub = X_test[:, feature_indices]
         
-        # Train Model dynamically
         log_reg = LogisticRegression()
         log_reg.fit(X_train_sub, y_train)
         acc = log_reg.score(X_test_sub, y_test)
         
         col1, col2 = st.columns([1, 2])
         with col1:
-            st.metric("Custom Model Accuracy", f"{acc:.2%}", help="Accuracy based ONLY on the features you selected.")
-            st.info("Notice how adding or removing highly correlated features (like different blood serum measurements) shifts the importance of the others.")
+            st.metric("Custom Model Accuracy", f"{acc:.2%}", help="This accuracy score is calculated using ONLY the features you selected above.")
+            st.info("Logistic Regression is highly interpretable because we can extract the exact mathematical weight (Beta Coefficient) it assigns to every single feature.")
             
         with col2:
             st.subheader("Beta Coefficients (Log-Odds Impact)")
@@ -88,29 +90,38 @@ if mode == "Lab 1: The Feature Inspector (LogReg)":
         st.warning("Please select at least one feature to train the model.")
 
 # ==========================================
-# LAB 2: DECISION BOUNDARY VISUALIZER
+# ACTIVITY 2: DECISION BOUNDARY VISUALIZER
 # ==========================================
-elif mode == "Lab 2: Decision Boundary Visualizer":
-    st.title("Lab 2: Visualizing How Models 'Think'")
-    st.markdown("""
-    **The Goal:** The script mentions SVM finds the "optimal decision boundary," while Decision Trees "recursively split" data. 
-    Here, we squish the 10-dimensional clinical data down to 2 dimensions (using PCA) so you can actually *see* the boundaries each model draws.
-    """)
+elif mode == "Activity 2: Decision Boundary Visualizer":
+    st.title("Activity 2: Visualizing How Models 'Think'")
+    
+    with st.expander("📝 Activity Instructions", expanded=True):
+        st.write("""
+        1. Select a machine learning model from the radio buttons.
+        2. Adjust the model's specific hyperparameters using the sliders.
+        3. Watch the 2D plot update to see exactly how the model draws its 'decision boundary' between High Risk (Red) and Low Risk (Blue) patients.
+        """)
     
     col1, col2 = st.columns([1, 3])
     
     with col1:
         st.subheader("Model Tuning")
-        model_type = st.radio("Choose Model to Visualize:", ["Decision Tree", "Random Forest", "SVM"])
+        model_type = st.radio(
+            "Choose Model to Visualize:", 
+            ["Decision Tree", "Random Forest", "SVM"],
+            help="Select the algorithm. Notice how Trees create blocky, recursive splits, while SVMs create smoother geometric boundaries."
+        )
         
         if model_type == "Decision Tree":
-            param = st.slider("Max Tree Depth", 1, 10, 3)
+            
+            param = st.slider("Max Tree Depth", 1, 10, 3, help="Limits how many times the tree can recursively split the data. Higher depth increases accuracy on training data but risks overfitting.")
             clf = DecisionTreeClassifier(max_depth=param)
         elif model_type == "Random Forest":
-            param = st.slider("Number of Trees", 1, 50, 10)
+            param = st.slider("Number of Trees", 1, 50, 10, help="An ensemble method. More trees generally improve accuracy and reduce the overfitting seen in single Decision Trees.")
             clf = RandomForestClassifier(n_estimators=param, max_depth=3)
         else:
-            param = st.select_slider("SVM Margin Regularization (C)", [0.01, 0.1, 1, 10, 100], value=1)
+            
+            param = st.select_slider("SVM Margin Regularization (C)", [0.01, 0.1, 1, 10, 100], value=1, help="Controls the trade-off between maximizing the margin and minimizing misclassifications. A higher C forces the model to classify training points strictly.")
             clf = SVC(C=param, kernel='rbf')
 
     with col2:
@@ -119,38 +130,37 @@ elif mode == "Lab 2: Decision Boundary Visualizer":
         X_pca = pca.fit_transform(X_train)
         clf.fit(X_pca, y_train)
         
-        # Create a mesh grid
         x_min, x_max = X_pca[:, 0].min() - 1, X_pca[:, 0].max() + 1
         y_min, y_max = X_pca[:, 1].min() - 1, X_pca[:, 1].max() + 1
         xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.05),
                              np.arange(y_min, y_max, 0.05))
         
-        # Predict across the grid
         Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
         Z = Z.reshape(xx.shape)
         
-        # Plotting
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.contourf(xx, yy, Z, alpha=0.3, cmap='coolwarm')
-        scatter = ax.scatter(X_pca[:, 0], X_pca[:, 1], c=y_train, edgecolor='k', cmap='coolwarm', s=20)
+        ax.scatter(X_pca[:, 0], X_pca[:, 1], c=y_train, edgecolor='k', cmap='coolwarm', s=20)
         ax.set_title(f"{model_type} Decision Boundary (2D PCA)")
         ax.set_xlabel("Principal Component 1")
         ax.set_ylabel("Principal Component 2")
         
         st.pyplot(fig)
-        st.caption("Red Area = Predicted High Risk. Blue Area = Predicted Low Risk. Notice how Trees draw blocky boxes, while SVM draws smooth, complex curves.")
+        st.caption("Red Area = Predicted High Risk. Blue Area = Predicted Low Risk. Points are individual patients.")
 
 # ==========================================
-# LAB 3: CLINICAL "WHAT-IF" SIMULATOR
+# ACTIVITY 3: CLINICAL SIMULATOR
 # ==========================================
-elif mode == "Lab 3: The Clinical 'What-If' Simulator":
-    st.title("Lab 3: The Multi-Model Patient Simulator")
-    st.markdown("""
-    **The Goal:** Train all four models in the background. Then, adjust the clinical sliders for a hypothetical patient. 
-    Watch how the different models might disagree on the same patient based on their underlying math.
-    """)
+elif mode == "Activity 3: The Clinical 'What-If' Simulator":
+    st.title("Activity 3: The Multi-Model Patient Simulator")
     
-    # Train all models quietly
+    with st.expander("📝 Activity Instructions", expanded=True):
+        st.write("""
+        1. Use the sidebar sliders to adjust the standardized clinical vitals for a hypothetical patient.
+        2. Watch the 'Real-Time Model Consensus' panel to see how all four models evaluate the exact same patient data.
+        3. Try creating edge cases (e.g., extremely high BMI but very low Blood Pressure) to see when the models disagree based on their underlying logic.
+        """)
+    
     models = {
         "Logistic Regression": LogisticRegression().fit(X_train, y_train),
         "Decision Tree": DecisionTreeClassifier(max_depth=4).fit(X_train, y_train),
@@ -161,12 +171,10 @@ elif mode == "Lab 3: The Clinical 'What-If' Simulator":
     st.sidebar.markdown("---")
     st.sidebar.subheader("Adjust Patient Vitals")
     
-    # Sliders for the most impactful standardized features
-    sim_bmi = st.sidebar.slider("Body Mass Index (Standardized)", -3.0, 3.0, 0.0)
-    sim_bp = st.sidebar.slider("Blood Pressure (Standardized)", -3.0, 3.0, 0.0)
-    sim_s5 = st.sidebar.slider("Serum Measure S5 (Standardized)", -3.0, 3.0, 0.0)
+    sim_bmi = st.sidebar.slider("Body Mass Index (Standardized)", -3.0, 3.0, 0.0, help="Adjust the standardized BMI. 0.0 represents the average patient in this dataset.")
+    sim_bp = st.sidebar.slider("Blood Pressure (Standardized)", -3.0, 3.0, 0.0, help="Adjust the standardized Blood Pressure. Positive values indicate higher than average BP.")
+    sim_s5 = st.sidebar.slider("Serum Measure S5 (Standardized)", -3.0, 3.0, 0.0, help="Adjust the standardized S5 blood serum level.")
     
-    # Construct a synthetic patient array (filling unselected features with 0/mean)
     synthetic_patient = np.zeros((1, 10))
     synthetic_patient[0, feature_names.index('bmi')] = sim_bmi
     synthetic_patient[0, feature_names.index('bp')] = sim_bp
@@ -185,4 +193,4 @@ elif mode == "Lab 3: The Clinical 'What-If' Simulator":
             st.markdown(f"<h3 style='color: {color};'>{status}</h3>", unsafe_allow_html=True)
             
     st.markdown("---")
-    st.info("**Why do they disagree?** As mentioned in the video, Random Forests handle complex interactions better than Logistic Regression. If you set BMI extremely high but BP extremely low, the models will weigh those conflicting signals differently.")
+    st.info("**Why do they disagree?** Random Forests and SVMs handle complex, non-linear interactions better than Logistic Regression. If the models disagree, it highlights why selecting the right model requires balancing feature interpretability against raw algorithmic complexity.")
