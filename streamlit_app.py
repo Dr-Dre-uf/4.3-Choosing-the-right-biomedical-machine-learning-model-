@@ -14,35 +14,68 @@ from sklearn.decomposition import PCA
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Biomedical ML Sandbox", layout="wide")
 
-# --- DATA LOADING & CACHING ---
-@st.cache_data
-def load_and_prep_data():
-    data = load_diabetes(as_frame=True)
-    df = data.frame.copy()
-    # Binary target: 1 = High Risk, 0 = Low Risk
-    df['Outcome'] = (df['target'] > df['target'].median()).astype(int)
-    X = df.drop(columns=['target', 'Outcome'])
-    y = df['Outcome']
-    return X, y, data.feature_names
+# --- SIDEBAR NAVIGATION & SETTINGS ---
+st.sidebar.title("Module Settings")
+scientific_context = st.sidebar.radio(
+    "Select Learning Context:",
+    ["Clinical (Patient Care)", "Foundational (Basic Science)"],
+    help="Toggle the terminology to match your specific field of study. The underlying math remains identical."
+)
+st.sidebar.markdown("---")
 
-X, y, feature_names = load_and_prep_data()
-
-# Scale data globally for the session
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
-
-# --- SIDEBAR NAVIGATION ---
 st.sidebar.title("ML Learning Module")
 mode = st.sidebar.radio(
     "Select an Activity:",
     [
         "Activity 1: The Feature Inspector (LogReg)", 
         "Activity 2: Decision Boundary Visualizer", 
-        "Activity 3: The Clinical 'What-If' Simulator"
+        "Activity 3: The 'What-If' Simulator"
     ],
     help="Navigate through the interactive activities to explore different machine learning models."
 )
+
+# --- DATA LOADING & CACHING ---
+@st.cache_data
+def load_and_prep_data(context):
+    data = load_diabetes(as_frame=True)
+    df = data.frame.copy()
+    
+    # Binary target: 1 = Positive/High Risk, 0 = Negative/Low Risk
+    df['Outcome'] = (df['target'] > df['target'].median()).astype(int)
+    X = df.drop(columns=['target', 'Outcome'])
+    y = df['Outcome']
+    
+    # Contextual Column Mapping
+    if context == "Clinical (Patient Care)":
+        rename_map = {
+            'age': 'Age', 'sex': 'Sex', 'bmi': 'BMI', 'bp': 'Blood Pressure',
+            's1': 'Total Cholesterol', 's2': 'LDL', 's3': 'HDL', 
+            's4': 'TC/HDL Ratio', 's5': 'Triglycerides', 's6': 'Blood Sugar'
+        }
+    else:
+        # Foundational Science Abstractions
+        rename_map = {
+            'age': 'Specimen Age (Days)', 'sex': 'Biological Sex', 
+            'bmi': 'Organism Mass Index', 'bp': 'Hydrostatic Pressure',
+            's1': 'Biomarker Alpha (s1)', 's2': 'Biomarker Beta (s2)', 
+            's3': 'Biomarker Gamma (s3)', 's4': 'Assay Ratio (s4)', 
+            's5': 'Target Metabolite (s5)', 's6': 'Glucose Concentration'
+        }
+        
+    X = X.rename(columns=rename_map)
+    return X, y, list(X.columns)
+
+# Load data dynamically based on the radio button selection
+X, y, feature_names = load_and_prep_data(scientific_context)
+
+# Scale data globally for the session
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+# Set dynamic target labels based on context
+target_positive = "High Risk" if scientific_context == "Clinical (Patient Care)" else "Positive Assay"
+target_negative = "Low Risk" if scientific_context == "Clinical (Patient Care)" else "Negative Assay"
 
 # ==========================================
 # ACTIVITY 1: FEATURE INSPECTOR
@@ -52,16 +85,16 @@ if mode == "Activity 1: The Feature Inspector (LogReg)":
     
     with st.expander("📝 Activity Instructions", expanded=True):
         st.write("""
-        1. Review the available clinical features in the dropdown below.
+        1. Review the available features in the dropdown below.
         2. Add or remove features to see how the Logistic Regression model adapts.
         3. Observe the bar chart to see how the **Beta Coefficients** change dynamically based on your feature selection.
         """)
     
     selected_features = st.multiselect(
-        "Select Clinical Features to include in the model:",
+        "Select Features to include in the model:",
         options=feature_names,
-        default=["bmi", "bp", "s1", "s2", "s5"],
-        help="Logistic regression relies on these features to calculate the log-odds of the disease outcome. Removing highly correlated features can shift the weight of the remaining ones."
+        default=feature_names[2:7], # Selects BMI/Mass Index through s3
+        help="Logistic regression relies on these features to calculate the log-odds of the outcome. Removing highly correlated features can shift the weight of the remaining ones."
     )
     
     if len(selected_features) > 0:
@@ -96,10 +129,10 @@ elif mode == "Activity 2: Decision Boundary Visualizer":
     st.title("Activity 2: Visualizing How Models 'Think'")
     
     with st.expander("📝 Activity Instructions", expanded=True):
-        st.write("""
+        st.write(f"""
         1. Select a machine learning model from the radio buttons.
         2. Adjust the model's specific hyperparameters using the sliders.
-        3. Watch the 2D plot update to see exactly how the model draws its 'decision boundary' between High Risk (Red) and Low Risk (Blue) patients.
+        3. Watch the 2D plot update to see exactly how the model draws its 'decision boundary' between {target_positive} (Red) and {target_negative} (Blue).
         """)
     
     col1, col2 = st.columns([1, 3])
@@ -113,14 +146,12 @@ elif mode == "Activity 2: Decision Boundary Visualizer":
         )
         
         if model_type == "Decision Tree":
-            
             param = st.slider("Max Tree Depth", 1, 10, 3, help="Limits how many times the tree can recursively split the data. Higher depth increases accuracy on training data but risks overfitting.")
             clf = DecisionTreeClassifier(max_depth=param)
         elif model_type == "Random Forest":
             param = st.slider("Number of Trees", 1, 50, 10, help="An ensemble method. More trees generally improve accuracy and reduce the overfitting seen in single Decision Trees.")
             clf = RandomForestClassifier(n_estimators=param, max_depth=3)
         else:
-            
             param = st.select_slider("SVM Margin Regularization (C)", [0.01, 0.1, 1, 10, 100], value=1, help="Controls the trade-off between maximizing the margin and minimizing misclassifications. A higher C forces the model to classify training points strictly.")
             clf = SVC(C=param, kernel='rbf')
 
@@ -146,19 +177,19 @@ elif mode == "Activity 2: Decision Boundary Visualizer":
         ax.set_ylabel("Principal Component 2")
         
         st.pyplot(fig)
-        st.caption("Red Area = Predicted High Risk. Blue Area = Predicted Low Risk. Points are individual patients.")
+        st.caption(f"Red Area = Predicted {target_positive}. Blue Area = Predicted {target_negative}.")
 
 # ==========================================
-# ACTIVITY 3: CLINICAL SIMULATOR
+# ACTIVITY 3: THE SIMULATOR
 # ==========================================
-elif mode == "Activity 3: The Clinical 'What-If' Simulator":
-    st.title("Activity 3: The Multi-Model Patient Simulator")
+elif mode == "Activity 3: The 'What-If' Simulator":
+    st.title("Activity 3: The Multi-Model Simulator")
     
     with st.expander("📝 Activity Instructions", expanded=True):
         st.write("""
-        1. Use the sidebar sliders to adjust the standardized clinical vitals for a hypothetical patient.
-        2. Watch the 'Real-Time Model Consensus' panel to see how all four models evaluate the exact same patient data.
-        3. Try creating edge cases (e.g., extremely high BMI but very low Blood Pressure) to see when the models disagree based on their underlying logic.
+        1. Use the sidebar sliders to adjust the standardized metrics for a hypothetical profile.
+        2. Watch the 'Real-Time Model Consensus' panel to see how all four models evaluate the exact same data.
+        3. Try creating edge cases (e.g., highly conflicting variables) to see when the models disagree based on their underlying logic.
         """)
     
     models = {
@@ -169,23 +200,28 @@ elif mode == "Activity 3: The Clinical 'What-If' Simulator":
     }
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("Adjust Patient Vitals")
+    st.sidebar.subheader("Adjust Variables")
     
-    sim_bmi = st.sidebar.slider("Body Mass Index (Standardized)", -3.0, 3.0, 0.0, help="Adjust the standardized BMI. 0.0 represents the average patient in this dataset.")
-    sim_bp = st.sidebar.slider("Blood Pressure (Standardized)", -3.0, 3.0, 0.0, help="Adjust the standardized Blood Pressure. Positive values indicate higher than average BP.")
-    sim_s5 = st.sidebar.slider("Serum Measure S5 (Standardized)", -3.0, 3.0, 0.0, help="Adjust the standardized S5 blood serum level.")
+    # Dynamically select variable names based on context toggle
+    var1_name = "BMI" if scientific_context == "Clinical (Patient Care)" else "Organism Mass Index"
+    var2_name = "Blood Pressure" if scientific_context == "Clinical (Patient Care)" else "Hydrostatic Pressure"
+    var3_name = "Triglycerides" if scientific_context == "Clinical (Patient Care)" else "Target Metabolite (s5)"
     
-    synthetic_patient = np.zeros((1, 10))
-    synthetic_patient[0, feature_names.index('bmi')] = sim_bmi
-    synthetic_patient[0, feature_names.index('bp')] = sim_bp
-    synthetic_patient[0, feature_names.index('s5')] = sim_s5
+    sim_var1 = st.sidebar.slider(f"{var1_name} (Standardized)", -3.0, 3.0, 0.0, help=f"Adjust the standardized {var1_name}. 0.0 represents the average in this dataset.")
+    sim_var2 = st.sidebar.slider(f"{var2_name} (Standardized)", -3.0, 3.0, 0.0, help=f"Adjust the standardized {var2_name}.")
+    sim_var3 = st.sidebar.slider(f"{var3_name} (Standardized)", -3.0, 3.0, 0.0, help=f"Adjust the standardized {var3_name}.")
+    
+    synthetic_profile = np.zeros((1, 10))
+    synthetic_profile[0, feature_names.index(var1_name)] = sim_var1
+    synthetic_profile[0, feature_names.index(var2_name)] = sim_var2
+    synthetic_profile[0, feature_names.index(var3_name)] = sim_var3
     
     st.subheader("Real-Time Model Consensus")
     cols = st.columns(4)
     
     for idx, (name, model) in enumerate(models.items()):
-        prediction = model.predict(synthetic_patient)[0]
-        status = "High Risk" if prediction == 1 else "Low Risk"
+        prediction = model.predict(synthetic_profile)[0]
+        status = target_positive if prediction == 1 else target_negative
         color = "red" if prediction == 1 else "green"
         
         with cols[idx]:
