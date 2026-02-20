@@ -1,0 +1,8 @@
+protobuf==3.20.3
+numpy<2.0.0
+ml_dtypes==0.3.1
+tensorflow
+streamlit
+pandas
+scikit-learn
+psutil
