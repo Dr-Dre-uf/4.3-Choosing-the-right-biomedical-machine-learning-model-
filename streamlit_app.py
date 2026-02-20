@@ -1,275 +1,168 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import psutil
-import os
-from sklearn.model_selection import KFold
+import time
+from sklearn.datasets import load_diabetes
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Input, Conv1D, Flatten, Dense, Dropout
-from tensorflow.keras.optimizers import Adam
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# --- MONITORING UTILITY ---
-def display_system_monitor():
-    """Tracks CPU and RAM usage to show the cost of Deep Learning training."""
-    process = psutil.Process(os.getpid())
-    mem_mb = process.memory_info().rss / (1024 * 1024)
-    cpu_percent = process.cpu_percent(interval=0.1)
-    
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("System Monitor")
-    c1, c2 = st.sidebar.columns(2)
-    c1.metric("CPU Usage", f"{cpu_percent}%", help="Watch this spike when you click 'Train Model'.")
-    c2.metric("RAM Footprint", f"{mem_mb:.1f} MB", help="Memory currently used by the app and dataset.")
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="Biomedical ML Activities", layout="wide")
 
-st.set_page_config(page_title="Applied ML Demo", layout="wide")
-
-# Navigation
-activity = st.sidebar.radio("Navigation", [
-    "Activity 1: Clinical Scenario",
-    "Activity 2: Base Performance & Accuracy",
-    "Activity 3: Advanced Clinical Metrics",
-    "Activity 4: CNN vs Decision Tree"
-], help="Navigate through the module activities.")
-
-display_system_monitor()
-
+# --- DATA LOADING ---
 @st.cache_data
-def load_data():
-    try:
-        # Attempt to load local file
-        df = pd.read_csv("diabetes.csv")
-    except:
-        # Fallback to sklearn dataset if file not found
-        from sklearn.datasets import load_diabetes
-        data = load_diabetes(as_frame=True)
-        df = data.frame.copy()
-        # Create a synthetic binary outcome for classification (1 = Death, 0 = Survival)
-        df['Outcome'] = (df['target'] > df['target'].median()).astype(int)
-        df.drop(columns='target', inplace=True)
+def load_clinical_data():
+    data = load_diabetes(as_frame=True)
+    df = data.frame.copy()
+    # Create a synthetic binary outcome (1 = High Risk, 0 = Low Risk)
+    df['Outcome'] = (df['target'] > df['target'].median()).astype(int)
+    df.drop(columns='target', inplace=True)
     return df
 
-df = load_data()
+df = load_clinical_data()
+X = df.drop(columns='Outcome')
+y = df['Outcome']
 
-# ==========================================
-# ACTIVITY 1
-# ==========================================
-if activity == "Activity 1: Clinical Scenario":
-    st.title("Activity 1: Applied Fundamentals of ML")
-    st.info("**Overview:** This section outlines the clinical context and raw data layout of the Deep Learning task.")
-    
-    st.header("Clinical Scenario")
-    st.write("""
-    This demo showcases a **1D Convolutional Neural Network (CNN)** designed to predict **in-hospital mortality** using data from the eICU Collaborative Research Database. 
-    
-    The dataset includes patient demographics and selected lab results such as glucose, creatinine, and potassium.
-    """)
-    
-    st.markdown("### Dataset Class Distribution")
-    st.write("Notice the heavy class imbalance. The vast majority of records represent 'Survival'. This will impact how we evaluate the model in later activities.")
-    
-    # Visualizing the Data Distribution
-    class_counts = df['Outcome'].value_counts().rename(index={0: 'Survival (0)', 1: 'Death (1)'})
-    st.bar_chart(class_counts, color="#FF4B4B")
+# Split and Scale data for the activities
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
 
-    with st.expander("Explore the Dataset Preview", expanded=False):
-        st.dataframe(df.head(10), use_container_width=True)
-        st.caption("Target Variable: 'Outcome' (0 = Survival, 1 = Death)")
+# --- SIDEBAR NAVIGATION ---
+st.sidebar.title("Module Navigation")
+activity = st.sidebar.radio(
+    "Select an Activity:",
+    ["Introduction", "Activity 1: Data & Logistic Regression", "Activity 2: Trees & Forests", "Activity 3: SVM & Model Comparison"],
+    help="Work through these activities in order to understand how different models handle the same clinical data."
+)
 
-    st.subheader("Task Details")
+# --- INTRODUCTION ---
+if activity == "Introduction":
+    st.title("Choosing the Right Biomedical ML Model")
     st.markdown("""
-    - **Job Task:** Binary Classification.
-    - **CNN Advantage:** 1D CNNs can identify complex sequential or spatial relationships between different lab values and demographics without requiring extensive manual feature engineering.
+    Welcome! In this interactive module, we will explore the basic algorithmic concepts of several classic machine learning models and compare their similarities and differences.
+    
+    **Learning Objectives:**
+    * Understand the inputs, outputs, and parameters of classic ML models.
+    * Compare feature interpretability vs. prediction accuracy.
+    * Learn guidelines for choosing the right model in biomedical contexts.
+    
+    Navigate to **Activity 1** in the sidebar to begin.
     """)
 
-# ==========================================
-# ACTIVITY 2
-# ==========================================
-elif activity == "Activity 2: Base Performance & Accuracy":
-    st.title("Activity 2: Evaluating Base Performance")
+# --- ACTIVITY 1: LOGISTIC REGRESSION ---
+elif activity == "Activity 1: Data & Logistic Regression":
+    st.title("Activity 1: The Baseline & Logistic Regression")
     
-    st.success("**Demo Focus:** Adjust basic hyperparameters and train the model. Watch the training graphs update to observe how the network learns over time.")
-
-    # Interactive Sidebar for Hyperparameters
-    st.sidebar.header("Model Hyperparameters")
-    epochs = st.sidebar.slider("Epochs", 10, 50, 20, help="Number of times the model sees the entire dataset.")
-    batch_size = st.sidebar.select_slider("Batch Size", options=[8, 16, 32, 64], value=16, help="Number of samples processed before the model updates its internal weights.")
-    
-    col1, col2 = st.columns([1, 1.5])
-    
-    with col1:
-        st.subheader("Train the CNN Model")
-        if st.button("Train Single Fold", help="Trains the model on an 80/20 split of the data and logs the training history."):
-            X = df.iloc[:, :-1].values
-            y = df.iloc[:, -1].values
-            
-            # Simple split
-            split = int(0.8 * len(X))
-            X_train, X_val = X[:split], X[split:]
-            y_train, y_val = y[:split], y[split:]
-            
-            scaler = StandardScaler()
-            X_train = scaler.fit_transform(X_train).reshape(len(X_train), X.shape[1], 1)
-            X_val = scaler.transform(X_val).reshape(len(X_val), X.shape[1], 1)
-            
-            model = Sequential([
-                Input(shape=(X.shape[1], 1)),
-                Conv1D(32, kernel_size=2, activation='relu'),
-                Flatten(),
-                Dense(16, activation='relu'),
-                Dense(1, activation='sigmoid')
-            ])
-            model.compile(optimizer=Adam(0.001), loss='binary_crossentropy', metrics=['accuracy'])
-            
-            with st.spinner("Training model... Check the CPU monitor on the left."):
-                history = model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=epochs, batch_size=batch_size, verbose=0)
-            
-            y_pred = (model.predict(X_val, verbose=0) > 0.5).astype(int).flatten()
-            tn, fp, fn, tp = confusion_matrix(y_val, y_pred).ravel()
-            acc = (tp+tn)/(tp+tn+fp+fn)
-            
-            st.session_state['act2_acc'] = acc
-            st.session_state['act2_history'] = history.history
-            st.session_state['act2_trained'] = True
-            st.success("Training Complete")
-            
-    with col2:
-        st.subheader("Training Metrics")
-        if st.session_state.get('act2_trained', False):
-            # Graphing the training loss and accuracy
-            hist_df = pd.DataFrame({
-                'Train Accuracy': st.session_state['act2_history']['accuracy'],
-                'Val Accuracy': st.session_state['act2_history']['val_accuracy'],
-            })
-            
-            # Removed the `help` argument here to fix the TypeError
-            st.line_chart(hist_df)
-            st.caption("Notice how accuracy converges over epochs.")
-            
-            st.metric("Final Total Accuracy", f"{st.session_state['act2_acc']*100:.1f}%", help="Percentage of overall correct predictions.")
-            
-            st.warning("**Note on Total Accuracy:** Because our dataset is highly imbalanced (mostly 'Survivals'), a model that simply predicts 'Survival' for everyone will achieve high total accuracy but miss 100% of the at-risk patients. Because of this, accuracy is an insufficient metric for clinical deployment.")
-
-# ==========================================
-# ACTIVITY 3
-# ==========================================
-elif activity == "Activity 3: Advanced Clinical Metrics":
-    st.title("Activity 3: Sensitivity, Specificity & Precision")
-    
-    st.info("**Demo Focus:** Run the evaluation, then dynamically adjust the **Decision Threshold** to visualize the inverse relationship between Sensitivity and Specificity.")
-
-    st.subheader("5-Fold Cross Validation Evaluation")
-    if st.button("Run Full K-Fold Evaluation", help="Executes a 5-Fold cross validation to gather robust probabilities."):
-        X = df.iloc[:, :-1].values
-        y = df.iloc[:, -1].values
-        kf = KFold(n_splits=5, shuffle=True, random_state=42)
-        
-        progress_bar = st.progress(0)
-        
-        for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
-            scaler = StandardScaler()
-            X_train = scaler.fit_transform(X[train_idx]).reshape(len(train_idx), X.shape[1], 1)
-            X_val = scaler.transform(X[val_idx]).reshape(len(val_idx), X.shape[1], 1)
-            y_train, y_val = y[train_idx], y[val_idx]
-            
-            model = Sequential([
-                Input(shape=(X.shape[1], 1)),
-                Conv1D(32, kernel_size=2, activation='relu'),
-                Flatten(),
-                Dense(16, activation='relu'),
-                Dense(1, activation='sigmoid')
-            ])
-            model.compile(optimizer=Adam(0.001), loss='binary_crossentropy', metrics=['accuracy'])
-            model.fit(X_train, y_train, epochs=15, batch_size=16, verbose=0)
-            
-            y_prob = model.predict(X_val, verbose=0)
-            st.session_state[f'probs_fold_{fold}'] = (y_val, y_prob)
-            progress_bar.progress((fold + 1) / 5)
-            
-        st.session_state['cv_done'] = True
-        st.success("Evaluation complete.")
-
-    if st.session_state.get('cv_done', False):
-        st.markdown("---")
-        # Interactive threshold mapping
-        threshold = st.slider("Probability Decision Threshold", 0.05, 0.95, 0.50, 0.05, 
-                              help="Lowering the threshold makes the model more sensitive (catches more at-risk patients) but increases false positives.")
-        
-        metrics_list = []
-        for fold in range(5):
-            y_val, y_prob = st.session_state[f'probs_fold_{fold}']
-            y_pred = (y_prob > threshold).astype(int).flatten()
-            
-            # Handle edge cases where tn, fp, fn, tp might not unpack perfectly if only one class is predicted
-            if len(np.unique(y_val)) > 1:
-                tn, fp, fn, tp = confusion_matrix(y_val, y_pred).ravel()
-            else:
-                tn, fp, fn, tp = 0, 0, 0, 0 # Fallback for safety in edge cases
-                
-            metrics_list.append({
-                'Sensitivity (Recall)': tp/(tp+fn) if (tp+fn)>0 else 0,
-                'Specificity': tn/(tn+fp) if (tn+fp)>0 else 0,
-                'Precision': tp/(tp+fp) if (tp+fp)>0 else 0
-            })
-            
-        res_df = pd.DataFrame(metrics_list)
-        avg_df = res_df.mean()
-        
-        col1, col2 = st.columns([1, 1.5])
-        
-        with col1:
-            st.markdown("### Trade-off Metrics")
-            st.metric("Avg Sensitivity", f"{avg_df['Sensitivity (Recall)']:.3f}", help="True Positive Rate: The proportion of actual deaths we successfully predicted.")
-            st.metric("Avg Specificity", f"{avg_df['Specificity']:.3f}", help="True Negative Rate: The proportion of actual survivals we correctly predicted.")
-            st.metric("Avg Precision", f"{avg_df['Precision']:.3f}", help="Positive Predictive Value: When we predict death, how often are we right?")
-            
-        with col2:
-            st.markdown("### Visual Metrics Comparison")
-            # Create a dataframe for the bar chart
-            chart_data = pd.DataFrame({
-                "Score": [avg_df['Sensitivity (Recall)'], avg_df['Specificity'], avg_df['Precision']]
-            }, index=["Sensitivity", "Specificity", "Precision"])
-            
-            st.bar_chart(chart_data)
-            st.caption("Notice how sliding the threshold inversely affects Sensitivity vs Specificity.")
-
-# ==========================================
-# ACTIVITY 4
-# ==========================================
-elif activity == "Activity 4: CNN vs Decision Tree":
-    st.title("Activity 4: Model Comparison")
-    
-    st.info("**Demo Focus:** Review the quantifiable trade-offs between model architectures for clinical settings.")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("### Decision Trees (Previous Model)")
+    with st.expander("📝 Activity Instructions", expanded=True):
         st.write("""
-        - **Interpretability:** Highly interpretable. Doctors can easily follow the logic.
-        - **Performance:** Often plateaus on highly complex, high-dimensional temporal data.
-        - **Feature Engineering:** Requires significant manual effort from clinicians to create good features.
+        1. Review the clinical dataset below. Notice the input features (covariates) and the binary output.
+        2. Click 'Train Logistic Regression' to see the model's beta coefficients.
+        3. Observe which features have the strongest effect on the outcome.
         """)
-    with col2:
-        st.markdown("### 1D CNNs (Current Model)")
-        st.write("""
-        - **Interpretability:** Functions as a 'Black Box'. Hard to mathematically explain the prediction.
-        - **Performance:** Usually superior on raw, complex datasets. Capable of finding hidden non-linear patterns.
-        - **Feature Engineering:** Learns automatic representations via convolutional filters.
-        """)
-    
+
+    st.subheader("1. The Biomedical Dataset")
+    st.dataframe(df.head(), use_container_width=True)
+    st.caption("Input Features: Patient characteristics (age, sex, bmi, bp, etc.). Output: Disease status (Outcome).")
+
     st.markdown("---")
-    st.subheader("Comparative Scoring Matrix")
+    st.subheader("2. Logistic Regression Interpretability")
+    st.info("Logistic regression stands out for its simplicity and interpretability. The model parameters are beta coefficients, which represent the effect of each predictor variable on the log-odds of the outcome.")
     
-    # Grouped Bar chart showing the comparison visually
-    comp_df = pd.DataFrame({
-        'Metric': ['Interpretability', 'Raw Performance', 'Automated Feature Extraction'],
-        'Decision Tree': [9, 5, 2],
-        '1D CNN': [2, 9, 8]
-    }).set_index('Metric')
-    
-    # Removed the `help` argument here to fix the TypeError
-    st.bar_chart(comp_df)
-    st.caption("A visual representation of model trade-offs. Scored 1-10.")
+    if st.button("Train Logistic Regression & Extract Coefficients", help="Fits the model to the data and extracts the calculated Beta coefficients."):
+        log_reg = LogisticRegression()
+        log_reg.fit(X_train_scaled, y_train)
+        acc = log_reg.score(X_test_scaled, y_test)
         
-    st.error("**Clinical AI Reality:** Interpretability is often a regulatory requirement in clinical AI deployment. While CNNs may have better overall metrics (like Sensitivity), a hospital might be forced to choose a Decision Tree if they cannot legally or ethically deploy a 'black box' model without explainability features.")
+        st.success(f"Model trained! Test Accuracy: **{acc:.2%}**")
+        
+        # Display Coefficients
+        coef_df = pd.DataFrame({
+            'Feature': X.columns,
+            'Beta Coefficient': log_reg.coef_[0]
+        }).sort_values(by='Beta Coefficient', ascending=False)
+        
+        st.bar_chart(coef_df.set_index('Feature'))
+        st.caption("Higher positive/negative values indicate a stronger effect on the probability of a High Risk outcome.")
+
+# --- ACTIVITY 2: TREES & FORESTS ---
+elif activity == "Activity 2: Trees & Forests":
+    st.title("Activity 2: Decision Trees vs. Random Forests")
+    
+    with st.expander("📝 Activity Instructions", expanded=True):
+        st.write("""
+        1. Adjust the 'Max Depth' of the Decision Tree to see how it affects accuracy.
+        2. Adjust the 'Number of Trees' in the Random Forest.
+        3. Compare the performance. Does the ensemble method (Random Forest) reduce overfitting and improve generalization as the script suggests?
+        """)
+
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Decision Tree")
+        st.write("Recursively splits the dataset based on feature values.")
+        tree_depth = st.slider("Max Tree Depth", min_value=1, max_value=20, value=3, 
+                               help="Limits how many consecutive splits the tree can make. Deeper trees memorize data (overfit) but may fail on new data.")
+        
+        dt_model = DecisionTreeClassifier(max_depth=tree_depth, random_state=42)
+        dt_model.fit(X_train, y_train)
+        dt_acc = dt_model.score(X_test, y_test)
+        st.metric("Decision Tree Accuracy", f"{dt_acc:.2%}")
+
+    with col2:
+        st.subheader("Random Forest")
+        st.write("An ensemble method combining multiple decision trees.")
+        n_trees = st.slider("Number of Trees in Forest", min_value=10, max_value=200, value=50, step=10,
+                            help="More trees usually improve accuracy and prevent overfitting, but take longer to compute.")
+        
+        rf_model = RandomForestClassifier(n_estimators=n_trees, max_depth=tree_depth, random_state=42)
+        rf_model.fit(X_train, y_train)
+        rf_acc = rf_model.score(X_test, y_test)
+        st.metric("Random Forest Accuracy", f"{rf_acc:.2%}", delta=f"{(rf_acc - dt_acc):.2%} vs DT")
+
+    
+    st.info("Notice how the Random Forest (usually) outperforms the single Decision Tree. However, you lose the ability to visualize a single, clean decision path.")
+
+# --- ACTIVITY 3: SVM & COMPARISON ---
+elif activity == "Activity 3: SVM & Model Comparison":
+    st.title("Activity 3: Support Vector Machines & Final Comparison")
+    
+    with st.expander("📝 Activity Instructions", expanded=True):
+        st.write("""
+        1. Train the Support Vector Machine (SVM).
+        2. Review the final comparison matrix.
+        3. Reflect on the trade-offs between interpretability and computational requirements when selecting a model for a clinical setting.
+        """)
+
+    st.subheader("Support Vector Machine (SVM)")
+    st.write("Finds the optimal decision boundary that maximizes the margin between the two classes.")
+    
+    c_param = st.select_slider("SVM Regularization (C)", options=[0.1, 1.0, 10.0, 100.0], value=1.0, 
+                               help="Controls the trade-off between achieving a low training error and a low testing error. High C can lead to overfitting.")
+    
+    if st.button("Train SVM"):
+        with st.spinner("Training SVM... (Note: SVMs can be computationally heavy on large datasets)"):
+            time.sleep(1) # Simulated delay to emphasize the script's point about compute time
+            svm_model = SVC(C=c_param, random_state=42)
+            svm_model.fit(X_train_scaled, y_train)
+            svm_acc = svm_model.score(X_test_scaled, y_test)
+            st.success(f"SVM trained! Accuracy: **{svm_acc:.2%}**")
+
+    st.markdown("---")
+    st.subheader("Final Review: Selecting the Right Model")
+    st.write("As summarized in the video, choosing a model involves balancing multiple priorities.")
+    
+    comparison_data = {
+        "Model": ["Logistic Regression", "Decision Tree", "Random Forest", "SVM"],
+        "Best For": ["Feature Interpretability", "Simple Rule Extraction", "High Accuracy & Generalization", "Complex Binary Boundaries"],
+        "Drawbacks": ["Limited with complex, non-linear data", "Prone to overfitting", "Lacks feature interpretability ('Black Box')", "Computationally slow on large datasets"]
+    }
+    st.table(pd.DataFrame(comparison_data))
