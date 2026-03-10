@@ -40,7 +40,7 @@ activity = st.sidebar.radio(
     "Go to:",
     [
         "Activity 1 - Data Exploration", 
-        "Activity 2 - Interactive Training", 
+        "Activity 2 - Random Forest Training", 
         "Activity 3 - Performance Metrics",
         "Activity 4 - Strategic Evaluation"
     ],
@@ -52,6 +52,7 @@ display_performance_monitor()
 # --- DATA LOADING ---
 @st.cache_data
 def load_data(context):
+    # Standard path as defined in your notebook
     data_path = "data/diabetes.csv"
     if not os.path.exists(data_path):
         data_path = "diabetes.csv" 
@@ -72,112 +73,120 @@ feature_list = [c for c in df.columns if c != 'Outcome']
 
 # --- ACTIVITY 1: DATA EXPLORATION ---
 if activity == "Activity 1 - Data Exploration":
-    st.header("Activity 1: Exploratory Data Analysis")
-    st.write("Before training, inspect the dataset to understand feature distributions and class imbalance.")
+    st.header("Activity 1: Exploring Data Types")
+    st.write("Inspect the raw data to understand feature distributions and identify class imbalances.")
     
-    st.subheader("Interactive Feature Viewer")
-    selected_feature = st.selectbox("Select a feature to analyze:", feature_list)
+    st.subheader("Data Preview")
+    st.dataframe(df.head(), use_container_width=True)
     
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**Outcome Distribution**")
         counts = df['Outcome'].value_counts().rename(index={0: 'Survival (0)', 1: 'Death (1)'})
         st.bar_chart(counts, color="#1f77b4")
-        st.write(f"**Data Summary:** The dataset contains {counts[0]} survival cases and {counts[1]} death cases. The target variable is binary.")
+        st.write(f"**Data Summary:** There are {counts[0]} survival cases and {counts[1]} death cases. This confirms a significant class imbalance.")
         
     with col2:
-        st.markdown(f"**Average {selected_feature} by Outcome**")
-        means = df.groupby('Outcome')[selected_feature].mean()
+        st.markdown("**Feature Averages by Outcome**")
+        # Defaulting to Glucose as per notebook scenario
+        target_feat = 'Glucose' if perspective == 'Clinical Science' else 'Metabolite Alpha'
+        means = df.groupby('Outcome')[target_feat].mean()
         st.bar_chart(means, color="#ff7f0e")
-        st.write(f"**Data Summary:** Average {selected_feature} for Survivors is {means[0]:.2f}, compared to {means[1]:.2f} for Deaths.")
+        st.write(f"**Data Summary:** The average {target_feat} for Survivors is {means[0]:.2f}, compared to {means[1]:.2f} for Deaths.")
 
-# --- ACTIVITY 2: INTERACTIVE TRAINING ---
-elif activity == "Activity 2 - Interactive Training":
-    st.header("Activity 2: Model Configuration")
-    st.write("Adjust the parameters below to see how model complexity affects the learning process.")
+# --- ACTIVITY 2: RANDOM FOREST TRAINING ---
+elif activity == "Activity 2 - Random Forest Training":
+    st.header("Activity 2: Random Forest Model Training")
+    st.write("Configure and train a Random Forest ensemble model using 5-fold cross-validation.")
 
-    # Hyperparameter Sliders
-    st.sidebar.subheader("Model Hyperparameters")
-    n_trees = st.sidebar.slider("Number of Trees", 10, 1000, 500, step=50)
-    tree_depth = st.sidebar.slider("Maximum Depth", 1, 20, 5)
+    # Parameters from Notebook 3
+    st.sidebar.subheader("Random Forest Hyperparameters")
+    n_estimators = st.sidebar.slider("Number of Trees (n_estimators)", 100, 1000, 500, step=100)
+    max_features = st.sidebar.selectbox("Max Features", ["sqrt", "log2", None], index=0)
     
-    selected_inputs = st.multiselect(
-        "Select Features to Include in Model:",
-        options=feature_list,
-        default=feature_list
-    )
+    
 
-    if st.button("Execute Training Run"):
-        if not selected_inputs:
-            st.error("Please select at least one feature.")
-        else:
-            X = df[selected_inputs].values
-            y = df['Outcome'].values
+    if st.button("Execute 5-Fold Cross-Validation"):
+        X = df[feature_list].values
+        y = df['Outcome'].values
+        
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        model = RandomForestClassifier(
+            n_estimators=n_estimators, 
+            max_features=max_features,
+            class_weight="balanced", 
+            random_state=42
+        )
+        
+        fold_results = []
+        progress_bar = st.progress(0)
+        
+        for i, (train_idx, val_idx) in enumerate(kf.split(X)):
+            model.fit(X[train_idx], y[train_idx])
+            acc = model.score(X[val_idx], y[val_idx])
+            fold_results.append(acc)
+            progress_bar.progress((i + 1) / 5)
             
-            # 5-Fold Evaluation logic from Notebook
-            kf = KFold(n_splits=5, shuffle=True, random_state=42)
-            model = RandomForestClassifier(
-                n_estimators=n_trees, 
-                max_depth=tree_depth,
-                class_weight="balanced", 
-                random_state=42
-            )
-            
-            accuracies = []
-            for train_idx, val_idx in kf.split(X):
-                model.fit(X[train_idx], y[train_idx])
-                accuracies.append(model.score(X[val_idx], y[val_idx]))
-            
-            st.session_state['demo_acc'] = np.mean(accuracies)
-            st.success("Training run complete.")
+        st.session_state['rf_cv_results'] = fold_results
+        st.success("Cross-validation complete.")
 
-    if 'demo_acc' in st.session_state:
-        st.metric("Mean Cross-Validation Accuracy", f"{st.session_state['demo_acc']:.4f}")
-        st.write(f"**Data Summary:** Using {n_trees} trees with a depth of {tree_depth}, the model achieved a mean accuracy of {st.session_state['demo_acc']:.2%}.")
+    if 'rf_cv_results' in st.session_state:
+        avg_acc = np.mean(st.session_state['rf_cv_results'])
+        st.metric("Average Accuracy", f"{avg_acc:.4f}")
+        
+        res_df = pd.DataFrame({
+            "Fold": [f"Fold {i+1}" for i in range(5)],
+            "Accuracy": st.session_state['rf_cv_results']
+        }).set_index("Fold")
+        
+        st.line_chart(res_df)
+        st.write(f"**Data Summary:** The line chart shows accuracy across 5 folds. The average accuracy is {avg_acc:.2%}.")
 
 # --- ACTIVITY 3: PERFORMANCE METRICS ---
 elif activity == "Activity 3 - Performance Metrics":
-    st.header("Activity 3: Advanced Metric Analysis")
-    st.write("In biomedical contexts, accuracy is often insufficient. Examine Sensitivity and Specificity.")
+    st.header("Activity 3: Advanced Clinical Metrics")
+    st.write("Evaluate Sensitivity, Specificity, and Precision to determine model reliability.")
 
     
 
-    threshold = st.slider("Classification Threshold", 0.1, 0.9, 0.5, 
-                         help="Lowering the threshold increases Sensitivity (catching more deaths) but reduces Specificity.")
-    
-    X = df[feature_list].values
-    y = df['Outcome'].values
-    
-    # Simple split for the threshold demo
-    scaler = StandardScaler()
-    X_s = scaler.fit_transform(X)
-    model = RandomForestClassifier(n_estimators=100, random_state=42).fit(X_s, y)
-    probs = model.predict_proba(X_s)[:, 1]
-    preds = (probs > threshold).astype(int)
-    
-    tn, fp, fn, tp = confusion_matrix(y, preds).ravel()
-    sens = tp / (tp + fn) if (tp + fn) > 0 else 0
-    spec = tn / (tn + fp) if (tn + fp) > 0 else 0
-    
-    c1, c2 = st.columns(2)
-    c1.metric("Sensitivity (Recall)", f"{sens:.3f}")
-    c2.metric("Specificity", f"{spec:.3f}")
-    
-    st.write(f"**Data Summary:** At a threshold of {threshold}, the model correctly identified {sens:.1%} of actual mortality cases (Sensitivity) and {spec:.1%} of actual survival cases (Specificity).")
+    if st.button("Calculate Detailed Metrics"):
+        X = df[feature_list].values
+        y = df['Outcome'].values
+        
+        # Using a fixed split for the detailed metrics demonstration
+        scaler = StandardScaler()
+        X_s = scaler.fit_transform(X)
+        model = RandomForestClassifier(n_estimators=500, class_weight="balanced", random_state=42).fit(X_s, y)
+        y_pred = model.predict(X_s)
+        
+        tn, fp, fn, tp = confusion_matrix(y, y_pred).ravel()
+        sens = tp / (tp + fn)
+        spec = tn / (tn + fp)
+        prec = tp / (tp + fp)
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Sensitivity (Recall)", f"{sens:.3f}")
+        c2.metric("Specificity", f"{spec:.3f}")
+        c3.metric("Precision", f"{prec:.3f}")
+        
+        st.write(f"**Data Summary:** Sensitivity is {sens:.3f}, Specificity is {spec:.3f}, and Precision is {prec:.3f}.")
 
 # --- ACTIVITY 4: STRATEGIC EVALUATION ---
 elif activity == "Activity 4 - Strategic Evaluation":
-    st.header("Activity 4: Model Selection Strategy")
-    st.write("Determine the best approach based on your specific requirements.")
+    st.header("Activity 4: Strategic Comparison")
+    st.write("Determine which model performs better for your specific biomedical context.")
     
-    requirement = st.selectbox(
-        "What is your primary organizational requirement?",
-        ["Maximum Predictive Power", "Legal/Regulatory Transparency", "Speed and Efficiency"]
+    
+
+    st.subheader("Random Forest vs. Decision Tree")
+    st.write("Recall from your notebook: Random Forests correct for decision trees' habit of overfitting to their training set.")
+    
+    comparison = st.radio(
+        "Which model is typically more stable across cross-validation folds?",
+        ["Decision Tree", "Random Forest"]
     )
     
-    if requirement == "Maximum Predictive Power":
-        st.success("Recommendation: Random Forest. This ensemble approach reduces overfitting and handles complex interactions between lab results.")
-    elif requirement == "Legal/Regulatory Transparency":
-        st.info("Recommendation: Single Decision Tree. This 'White Box' model allows clinicians to follow the exact 'If-Then' logic of the prediction.")
+    if comparison == "Random Forest":
+        st.success("Correct. Random Forests use ensemble learning to reduce variance and improve generalization.")
     else:
-        st.warning("Recommendation: Logistic Regression. This baseline model is computationally light and provides direct coefficients for each variable.")
+        st.info("Consider that single Decision Trees often 'memorize' noise in a single fold, leading to lower stability.")
