@@ -4,7 +4,8 @@ import numpy as np
 import psutil
 import os
 import matplotlib.pyplot as plt
-from sklearn.model_selection import KFold
+# Added the missing train_test_split import here
+from sklearn.model_selection import KFold, train_test_split 
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -123,10 +124,7 @@ elif activity == "Activity 3 - Tree vs. Forest Comparison":
     st.header("Activity 3: Model Comparison Sandbox")
     st.write("Adjust parameters for both models to answer the final question: Which one performs better and why?")
 
-    
-
     col1, col2 = st.columns(2)
-    
     with col1:
         st.subheader("Decision Tree Settings")
         dt_depth = st.slider("DT Max Depth", 1, 30, 5, help="Single trees with high depth often overfit.")
@@ -148,14 +146,12 @@ elif activity == "Activity 3 - Tree vs. Forest Comparison":
         dt_acc = dt.score(X_test, y_test)
         rf_acc = rf.score(X_test, y_test)
         
-        
-
         c1, c2 = st.columns(2)
         c1.metric("Decision Tree Accuracy", f"{dt_acc:.3f}")
         c2.metric("Random Forest Accuracy", f"{rf_acc:.3f}", delta=f"{rf_acc - dt_acc:.3f}")
         
         st.write(f"**Data Summary:** At the selected parameters, the Decision Tree achieved {dt_acc:.1%} accuracy while the Random Forest achieved {rf_acc:.1%}.")
-        st.info("Strategic Insight: Random Forests correct for the 'memorization' (overfitting) tendency of Decision Trees by aggregating multiple viewpoints.")
+        st.info("Strategic Insight: Random Forests correct for the 'memorization' (overfitting) tendency of Decision Trees by aggregating multiple trees.")
 
     st.markdown("---")
     st.markdown("### Canvas Reflection Question")
