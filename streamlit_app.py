@@ -1,200 +1,230 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split, KFold
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import SVC
-from sklearn.decomposition import PCA
-from sklearn.metrics import confusion_matrix
+import psutil
 import os
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Input, Dense, Dropout
+from tensorflow.keras.optimizers import Adam
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Biomedical ML Sandbox", layout="wide")
+# --- MONITORING UTILITY ---
+def display_performance_monitor():
+    """Tracks CPU and RAM usage of the current Streamlit process."""
+    process = psutil.Process(os.getpid())
+    mem_mb = process.memory_info().rss / (1024 * 1024)
+    cpu_percent = process.cpu_percent(interval=0.1)
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("System Monitor")
+    st.sidebar.caption("Tracks the resource usage of this app in real-time.")
+    c1, c2 = st.sidebar.columns(2)
+    c1.metric("CPU Load", f"{cpu_percent}%", help="Current CPU usage of the Streamlit server.")
+    c2.metric("RAM Usage", f"{mem_mb:.1f} MB", help="Current RAM memory allocated to this app.")
 
-# --- SIDEBAR NAVIGATION & SETTINGS ---
-st.sidebar.title("Module Settings")
-scientific_context = st.sidebar.radio(
-    "Select Learning Context:",
-    ["Clinical (Patient Care)", "Foundational (Basic Science)"],
-    help="Toggle terminology to match your study field. The underlying math remains identical."
+# ---------------------------------
+# Page Config & Sidebar
+# ---------------------------------
+st.set_page_config(page_title="Applied Fundamentals of ML and DL", layout="wide")
+
+st.sidebar.markdown("### 1. Select Perspective")
+perspective = st.sidebar.radio(
+    "View demonstration through the lens of:",
+    ["Clinical Science", "Foundational Science"],
+    help="Toggle this to see how the same machine learning pipeline is interpreted differently depending on the scientific domain."
 )
-st.sidebar.markdown("---")
 
-st.sidebar.title("ML Learning Module")
-mode = st.sidebar.radio(
-    "Select an Activity:",
+st.sidebar.markdown("### 2. Navigation")
+activity = st.sidebar.radio(
+    "Go to:",
     [
-        "Activity 1: The Feature Inspector (LogReg)", 
-        "Activity 2: Decision Boundary Visualizer", 
-        "Activity 3: The What-If Simulator",
-        "Activity 4: Cross-Validation and Metrics"
+        "Activity 1 - Data Exploration",
+        "Activity 2 - Model Optimization",
+        "Activity 3 - Cross-Validation Analysis",
+        "Activity 4 - Strategic Evaluation"
     ],
-    help="Navigate through interactive activities to explore different machine learning models."
+    help="Select an activity to interact with the corresponding stage of the pipeline."
 )
 
-# --- DATA LOADING ---
+display_performance_monitor()
+
+# ---------------------------------
+# Context Variables
+# ---------------------------------
+if perspective == "Clinical Science":
+    app_desc = "Interactive demonstration of a clinical analytics pipeline. Observe how a Deep Neural Network learns to predict in-hospital mortality using data from the eICU Collaborative Research Database."
+else:
+    app_desc = "Interactive demonstration of a computational biology pipeline. Analyze how a Deep Neural Network maps continuous input features to a binary target on a highly imbalanced dataset."
+
+st.title("Applied Fundamentals of Machine Learning (ML) and Deep Learning (DL)")
+st.write(app_desc)
+
+# ---------------------------------
+# Load Dataset 
+# ---------------------------------
 @st.cache_data
-def load_and_prep_data(context):
-    # Load from the path specified in the notebook
-    data_path = "data/diabetes.csv"
-    if not os.path.exists(data_path):
-        # Local fallback for development environment
-        data_path = "diabetes.csv"
-        
-    df = pd.read_csv(data_path)
-    X = df.drop(columns=['Outcome'])
-    y = df['Outcome']
-    
-    # Rename columns based on the selected context
-    if context == "Clinical (Patient Care)":
-        rename_map = {
-            'Pregnancies': 'Pregnancies', 'Glucose': 'Glucose', 
-            'BloodPressure': 'Blood Pressure', 'SkinThickness': 'Skin Thickness', 
-            'Insulin': 'Insulin', 'BMI': 'BMI', 
-            'DiabetesPedigreeFunction': 'Diabetes Pedigree', 'Age': 'Age'
-        }
-    else:
-        rename_map = {
-            'Pregnancies': 'Reproductive Cycles', 'Glucose': 'Metabolite Alpha', 
-            'BloodPressure': 'Hydrostatic Pressure', 'SkinThickness': 'Tissue Thickness', 
-            'Insulin': 'Hormone Level', 'BMI': 'Mass Index', 
-            'DiabetesPedigreeFunction': 'Lineage Factor', 'Age': 'Specimen Age'
-        }
-        
-    X = X.rename(columns=rename_map)
-    return X, y, list(X.columns)
-
-X, y, feature_names = load_and_prep_data(scientific_context)
-
-# Scale data globally for consistency
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
-
-target_positive = "High Risk" if scientific_context == "Clinical (Patient Care)" else "Positive Outcome"
-target_negative = "Low Risk" if scientific_context == "Clinical (Patient Care)" else "Negative Outcome"
-
-# ==========================================
-# ACTIVITY 1: FEATURE INSPECTOR
-# ==========================================
-if mode == "Activity 1: The Feature Inspector (LogReg)":
-    st.title("Activity 1: Feature Engineering and Log-Odds")
-    
-    with st.expander("Activity Instructions", expanded=True):
-        st.write("""
-        1. Select specific features from the dropdown to include them in the model.
-        2. Observe the Accuracy metric and the Beta Coefficient chart.
-        3. Identify which clinical or foundational features have the strongest impact on the outcome.
-        """)
-    
-    selected_features = st.multiselect(
-        "Select Features for the Logistic Regression model:",
-        options=feature_names,
-        default=feature_names[1:6],
-        help="Select predictors. Logistic regression uses these to calculate the log-odds of the outcome."
-    )
-    
-    if selected_features:
-        feature_indices = [feature_names.index(f) for f in selected_features]
-        log_reg = LogisticRegression().fit(X_train[:, feature_indices], y_train)
-        acc = log_reg.score(X_test[:, feature_indices], y_test)
-        
-        c1, c2 = st.columns([1, 2])
-        c1.metric("Model Accuracy", f"{acc:.2%}")
-        
-        coef_df = pd.DataFrame({'Feature': selected_features, 'Beta': log_reg.coef_[0]}).sort_values('Beta')
-        c2.subheader("Beta Coefficients")
-        st.bar_chart(coef_df.set_index('Feature'))
-        st.caption("A chart showing feature weights. Positive values indicate a direct relationship with the outcome.")
-
-# ==========================================
-# ACTIVITY 2: DECISION BOUNDARY VISUALIZER
-# ==========================================
-elif mode == "Activity 2: Decision Boundary Visualizer":
-    st.title("Activity 2: Visualizing Model Logic")
-    
-    with st.expander("Activity Instructions", expanded=True):
-        st.write("Compare how different models draw boundaries to separate data classes.")
-    
-    model_type = st.radio("Select Model:", ["Decision Tree", "Random Forest", "SVM"], help="Choose the algorithm structure.")
-    
-    if model_type == "Decision Tree":
-        clf = DecisionTreeClassifier(max_depth=st.slider("Tree Depth", 1, 10, 3))
-    elif model_type == "Random Forest":
-        clf = RandomForestClassifier(n_estimators=st.slider("Number of Trees", 10, 100, 20), max_depth=3)
-    else:
-        clf = SVC(C=st.select_slider("Regularization (C)", [0.1, 1, 10, 100]), kernel='rbf')
-
-    pca = PCA(n_components=2)
-    X_pca = pca.fit_transform(X_train)
-    clf.fit(X_pca, y_train)
-    
-    # Boundary visualization using viridis (colorblind safe)
-    x_min, x_max = X_pca[:, 0].min() - 1, X_pca[:, 0].max() + 1
-    y_min, y_max = X_pca[:, 1].min() - 1, X_pca[:, 1].max() + 1
-    xx, yy = np.meshgrid(np.arange(x_min, x_max, 0.1), np.arange(y_min, y_max, 0.1))
-    Z = clf.predict(np.c_[xx.ravel(), yy.ravel()]).reshape(xx.shape)
-    
-    fig, ax = plt.subplots()
-    ax.contourf(xx, yy, Z, alpha=0.3, cmap='viridis')
-    ax.scatter(X_pca[:, 0], X_pca[:, 1], c=y_train, edgecolors='k', cmap='viridis')
-    st.pyplot(fig)
-    st.caption(f"Decision boundaries separating {target_positive} from {target_negative}.")
-
-# ==========================================
-# ACTIVITY 3: WHAT-IF SIMULATOR
-# ==========================================
-elif mode == "Activity 3: The What-If Simulator":
-    st.title("Activity 3: Multi-Model Patient Simulation")
-    
-    st.sidebar.subheader("Adjust Vitals")
-    v1 = st.sidebar.slider(f"{feature_names[1]}", -3.0, 3.0, 0.0)
-    v2 = st.sidebar.slider(f"{feature_names[5]}", -3.0, 3.0, 0.0)
-    
-    # Synthetic patient
-    patient = np.zeros((1, 8))
-    patient[0, 1], patient[0, 5] = v1, v2
-    
-    cols = st.columns(4)
-    models = {
-        "LogReg": LogisticRegression().fit(X_train, y_train),
-        "Tree": DecisionTreeClassifier(max_depth=3).fit(X_train, y_train),
-        "Forest": RandomForestClassifier(n_estimators=50).fit(X_train, y_train),
-        "SVM": SVC().fit(X_train, y_train)
+def load_data():
+    try:
+        df = pd.read_csv("data/diabetes.csv")
+    except FileNotFoundError:
+        try:
+            df = pd.read_csv("diabetes.csv")
+        except FileNotFoundError:
+            from sklearn.datasets import load_diabetes
+            data = load_diabetes(as_frame=True)
+            df = data.frame.copy()
+            df['Outcome'] = (df['target'] > df['target'].median()).astype(int)
+            df.drop(columns='target', inplace=True)
+            
+    mapping = {
+        'age': 'Age', 'bmi': 'BMI', 'bp': 'BloodPressure', 
+        'Pregnancies': 'Pregnancies', 'Glucose': 'Glucose', 
+        'SkinThickness': 'SkinThickness', 'Insulin': 'Insulin',
+        'DiabetesPedigreeFunction': 'DiabetesPedigreeFunction'
     }
-    
-    for i, (name, m) in enumerate(models.items()):
-        pred = m.predict(patient)[0]
-        status = target_positive if pred == 1 else target_negative
-        cols[i].markdown(f"**{name} Prediction:**\n### {status}")
+    df.rename(columns=mapping, inplace=True)
+    return df
 
-# ==========================================
-# ACTIVITY 4: CROSS-VALIDATION
-# ==========================================
-elif mode == "Activity 4: Cross-Validation and Metrics":
-    st.title("Activity 4: Evaluating Model Stability")
+df = load_data()
+
+# --------------------
+# Activity 1 - Data Exploration
+# --------------------
+if activity == "Activity 1 - Data Exploration":
+    st.header("Activity 1: Exploring Data Types")
+    st.write("Complete each activity in order. In the sidebar, toggle between the Clinical Science and Foundational Science perspectives. Before training a model, researchers must inspect the raw data to understand feature distributions.")
     
-    if st.button("Run 5-Fold Cross Validation", help="Trains the model 5 times on different data slices."):
-        kf = KFold(n_splits=5, shuffle=True, random_state=42)
-        model = RandomForestClassifier(n_estimators=500, class_weight="balanced", random_state=42)
+    st.subheader("Data Preview")
+    n_rows = st.slider("Number of records to display", 1, 20, 5)
+    st.dataframe(df.head(n_rows), use_container_width=True)
+    
+    st.subheader("Feature Distributions")
+    feature_cols = [col for col in df.columns if col != 'Outcome']
+    feature_to_plot = st.selectbox("Select a feature to visualize:", feature_cols)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Outcome Distribution**")
+        class_counts = df['Outcome'].value_counts().rename(index={0: 'Survival (0)', 1: 'Death (1)'})
+        st.bar_chart(class_counts, color="#1f77b4")
+        st.write(f"**Data Summary:** There are {class_counts.iloc[0]} Survival records and {class_counts.iloc[1]} Death records. This confirms a significant class imbalance.")
         
+    with col2:
+        st.markdown(f"**Mean {feature_to_plot} by Outcome**")
+        feature_means = df.groupby('Outcome')[feature_to_plot].mean()
+        st.bar_chart(feature_means, color="#ff7f0e")
+        st.write(f"**Data Summary:** The average {feature_to_plot} for Survivors is {feature_means.iloc[0]:.2f}, while the average for Deaths is {feature_means.iloc[1]:.2f}.")
+
+# --------------------
+# Activity 2 - Model Optimization
+# --------------------
+elif activity == "Activity 2 - Model Optimization":
+    st.header("Activity 2: Model Optimization")
+    st.write("Configure the optimization parameters to dictate how the network updates its internal weights.")
+
+    epochs = st.sidebar.slider("Epochs", 5, 50, 20)
+    batch_size = st.sidebar.select_slider("Batch Size", options=[8, 16, 32], value=16)
+
+    if st.button("Execute Training"):
+        X = df.drop(columns=['Outcome']).values
+        y = df['Outcome'].values
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        model = Sequential([
+            Input(shape=(X_scaled.shape[1],)),
+            Dense(128, activation='relu'),
+            Dropout(0.3),
+            Dense(64, activation='relu'),
+            Dropout(0.2),
+            Dense(1, activation='sigmoid')
+        ])
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        
+        with st.spinner("Training model..."):
+            history = model.fit(X_scaled, y, epochs=epochs, batch_size=batch_size, validation_split=0.2, verbose=0)
+            st.session_state['act2_history'] = history.history
+
+    if 'act2_history' in st.session_state:
+        st.subheader("Model Learning Curve")
+        st.line_chart(pd.DataFrame(st.session_state['act2_history'])['accuracy'])
+        final_acc = st.session_state['act2_history']['accuracy'][-1]
+        st.metric("Final Global Accuracy", f"{final_acc:.4f}")
+        st.write(f"**Data Summary:** The line chart shows the training accuracy over {epochs} epochs. The final accuracy achieved is {final_acc:.2%}.")
+
+# --------------------
+# Activity 3 - Cross-Validation Analysis
+# --------------------
+elif activity == "Activity 3 - Cross-Validation Analysis":
+    st.header("Activity 3: Cross-Validation and Trade-Offs")
+    st.write("Adjust the classification threshold to observe the statistical trade-offs between Sensitivity and Specificity.")
+
+    
+
+    if st.button("Run 5-Fold Evaluation"):
+        X = df.drop(columns=['Outcome']).values
+        y = df['Outcome'].values
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        results = []
+        
+        for train_idx, val_idx in kf.split(X):
+            scaler = StandardScaler()
+            X_train = scaler.fit_transform(X[train_idx])
+            X_val = scaler.transform(X[val_idx])
+            
+            model = Sequential([
+                Input(shape=(X_train.shape[1],)),
+                Dense(64, activation='relu'),
+                Dense(1, activation='sigmoid')
+            ])
+            model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+            model.fit(X_train, y[train_idx], epochs=10, batch_size=32, verbose=0)
+            results.append((y[val_idx], model.predict(X_val, verbose=0)))
+        
+        st.session_state['act3_results'] = results
+
+    if 'act3_results' in st.session_state:
+        threshold = st.slider("Classification Threshold", 0.1, 0.9, 0.5)
         metrics = []
-        for train_idx, val_idx in kf.split(X_scaled):
-            model.fit(X_scaled[train_idx], y.values[train_idx])
-            y_pred = model.predict(X_scaled[val_idx])
-            tn, fp, fn, tp = confusion_matrix(y.values[val_idx], y_pred).ravel()
+        for y_true, y_prob in st.session_state['act3_results']:
+            y_pred = (y_prob > threshold).astype(int).flatten()
+            tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
             metrics.append([
                 (tp+tn)/(tp+tn+fp+fn), # Acc
-                tp/(tp+fn),           # Sens
-                tn/(tn+fp)            # Spec
+                tp/(tp+fn) if (tp+fn)>0 else 0, # Sens
+                tn/(tn+fp) if (tn+fp)>0 else 0 # Spec
             ])
         
-        
-        res_df = pd.DataFrame(metrics, columns=['Accuracy', 'Sensitivity', 'Specificity'])
-        st.write("Average Performance Across 5 Folds:")
-        st.table(res_df.mean())
-        st.line_chart(res_df)
+        avg_m = np.mean(metrics, axis=0)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Avg Accuracy", f"{avg_m[0]:.3f}")
+        c2.metric("Avg Sensitivity", f"{avg_m[1]:.3f}", help="Ability to correctly identify positive cases.")
+        c3.metric("Avg Specificity", f"{avg_m[2]:.3f}", help="Ability to correctly identify negative cases.")
+
+# --------------------
+# Activity 4 - Strategic Evaluation
+# --------------------
+elif activity == "Activity 4 - Strategic Evaluation":
+    st.header("Activity 4: Strategic Evaluation")
+    
+    st.subheader("Architectural Comparison")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Decision Tree**")
+        st.write("- Logic: Interpretable If-Then splits.")
+        st.write("- Transparency: High (White Box).")
+    with col2:
+        st.markdown("**Deep Neural Network**")
+        st.write("- Logic: Complex non-linear combinations.")
+        st.write("- Transparency: Low (Black Box).")
+    
+    priority = st.select_slider("Select Core Requirement:", options=["Interpretability", "Balanced", "Performance"])
+    
+    if priority == "Interpretability":
+        st.info("Strategy: Use the Decision Tree. Trusted for step-by-step follow-through.")
+    elif priority == "Performance":
+        st.success("Strategy: Use the DNN. Best for high-dimensional predictive power.")
+    else:
+        st.warning("Strategy: Balanced approach using explainability tools.")
